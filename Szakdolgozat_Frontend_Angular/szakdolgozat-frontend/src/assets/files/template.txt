@@ -1,1 +1,1 @@
-Number of panels;Panel area m2;Category;Air temperature;Clear sky DHI;Clear sky DNI;Clear sky GHI;Clear sky GTI;DHI;DNI;GHI;GTI;Cloud opacity;Season;Snow soiling ground;Snow soiling rooftop
+Production;Number of panels;Panel area m2;Category;Air temperature;Clear sky DHI;Clear sky DNI;Clear sky GHI;Clear sky GTI;DHI;DNI;GHI;GTI;Cloud opacity;Season;Snow soiling ground;Snow soiling rooftop

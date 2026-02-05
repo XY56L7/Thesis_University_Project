@@ -1,4 +1,5 @@
 export interface CommunitiesDataGru {
+    production: number;
     number_of_panels: number;
     panel_area_m2: number;
     category: string;

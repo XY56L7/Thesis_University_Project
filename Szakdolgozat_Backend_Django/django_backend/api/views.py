@@ -24,6 +24,7 @@ import random
 import matplotlib
 import pickle
 import torch
+import torch.nn as nn
 from asgiref.sync import sync_to_async
 matplotlib.use('Agg')
 
@@ -38,7 +39,7 @@ async def predict_communities_gru(request):
         print("Parsed data:", data)
 
         required_columns = [
-            'number_of_panels', 'panel_area_m2', 'category', 'air_temp', 
+            'production', 'number_of_panels', 'panel_area_m2', 'category', 'air_temp', 
             'clearsky_dhi', 'clearsky_dni', 'clearsky_ghi', 'clearsky_gti', 
             'cloud_opacity', 'dhi', 'dni', 'ghi', 'gti', 
             'snow_soiling_rooftop', 'snow_soiling_ground', 'season'
@@ -51,6 +52,7 @@ async def predict_communities_gru(request):
         if (missing_cols):
             return JsonResponse({'error': 'Missing required input fields'}, status=400)
         
+        df['production'] = df['production'].astype(int)
         df['number_of_panels'] = df['number_of_panels'].astype(int)
         df['panel_area_m2'] = df['panel_area_m2'].astype(float)
         df['category'] = df['category'].astype(str)
@@ -70,14 +72,31 @@ async def predict_communities_gru(request):
 
         predicted = await sync_to_async(predict_form_gru)(df)
 
-        MODEL_PATH = os.path.join(BASE_DIR, 'api', 'models', 'best_solar_model.pth')
-        loaded_model = torch.load(MODEL_PATH, map_location='cpu')
+        MODEL_PATH = os.path.join(BASE_DIR, 'api', 'models', 'communities_GRU', 'Communities_GRU.pth')
 
-        input_data_as_numpy_array = np.asarray(predicted)
-        predicted_production = loaded_model.predict(input_data_as_numpy_array)
+        loaded_model = SolarGRU()
+        state_dict = torch.load(MODEL_PATH, map_location='cpu')
+
+        loaded_model.load_state_dict(state_dict)
+        loaded_model.eval()
+
+        device = torch.device("cpu")
+
+        input_tensor = torch.tensor(predicted, dtype=torch.float32).unsqueeze(0).to(device)
+
+        with torch.no_grad():
+            prediction_norm = loaded_model(input_tensor).cpu().numpy()
+
+        Y_SCALER = os.path.join(BASE_DIR, 'api', 'models', 'communities_GRU', 'GRU_scaler_y.save')
+
+        y_scaler = joblib.load(Y_SCALER)
+
+        prediction_real = y_scaler.inverse_transform(prediction_norm)
+        
+        result = max(0.0, float(prediction_real[0][0]))
 
         response_data = {
-            'predicted_production': float(predicted_production[0])
+            'predicted_production': float(result)
         }
 
         return JsonResponse(response_data)
@@ -126,7 +145,7 @@ async def predict_communities(request):
                                                                        clearsky_dhi, clearsky_dni, clearsky_ghi, clearsky_gti, cloud_opacity, dhi, dni,
                                                                        ghi, gti, snow_soiling_rooftop, snow_soiling_ground, season)
         
-        MODEL_PATH = os.path.join(BASE_DIR, 'api', 'models', 'reg.sav')
+        MODEL_PATH = os.path.join(BASE_DIR, 'api', 'models', 'communities', 'reg.sav')
         loaded_model = pickle.load(open(MODEL_PATH, "rb"))
 
         input_data_as_numpy_array = np.asarray(predicted)
@@ -273,8 +292,8 @@ def predict_energy(request):
     return JsonResponse({'error': 'Invalid request'}, status=400)
 
 def predict_production(features):
-    model_path = os.path.join(settings.BASE_DIR, 'api', 'models', 'production_model.keras')
-    scaler_path = os.path.join(settings.BASE_DIR, 'api', 'models', 'scaler.pkl')
+    model_path = os.path.join(settings.BASE_DIR, 'api', 'models', 'production', 'production_model.keras')
+    scaler_path = os.path.join(settings.BASE_DIR, 'api', 'models', 'production', 'scaler.pkl')
     model = load_model(model_path)
     scaler = joblib.load(scaler_path)
 
@@ -284,8 +303,8 @@ def predict_production(features):
     return float(prediction[0][0])
 
 def predict_consumption(features):
-    model_path = os.path.join(settings.BASE_DIR, 'api', 'models', 'consumption_model.keras')
-    scaler_path = os.path.join(settings.BASE_DIR, 'api', 'models', 'scaler.pkl')
+    model_path = os.path.join(settings.BASE_DIR, 'api', 'models', 'consumption', 'consumption_model.keras')
+    scaler_path = os.path.join(settings.BASE_DIR, 'api', 'models', 'consumption', 'scaler.pkl')
     model = load_model(model_path)
     scaler = joblib.load(scaler_path)
 
@@ -295,10 +314,10 @@ def predict_consumption(features):
     return float(prediction[0][0])
 
 def predict_power_consumption(v_rms, i_rms, s,device):
-    MODEL_PATH = os.path.join(BASE_DIR, 'api', 'models', f'{device}',f'{device}.keras')
+    MODEL_PATH = os.path.join(BASE_DIR, 'api', 'models', f'{device}', f'{device}.keras')
 
-    INPUT_SCALER = os.path.join(BASE_DIR, 'api', 'models', f'{device}',f'{device}_scaler_features.pkl')
-    OUTPUT_SCALER = os.path.join(BASE_DIR, 'api', 'models', f'{device}',f'{device}_scaler_target.pkl')
+    INPUT_SCALER = os.path.join(BASE_DIR, 'api', 'models', f'{device}', f'{device}_scaler_features.pkl')
+    OUTPUT_SCALER = os.path.join(BASE_DIR, 'api', 'models', f'{device}', f'{device}_scaler_target.pkl')
     model = load_model(MODEL_PATH)
 
     input_scaler = joblib.load(INPUT_SCALER)
@@ -325,6 +344,21 @@ def encode_category(category):
     categories = ["kertes ház", "ikerház", "panel"]
     return [1 if c == category else 0 for c in categories]
 
+class SolarGRU(nn.Module):
+    def __init__(self, input_size=32, hidden_size=128, num_layers=2, output_size=1):
+        super(SolarGRU, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True, dropout=0.1)
+        self.fc = nn.Linear(hidden_size, output_size)
+
+    def forward(self, x):
+        device = x.device
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(device)
+        out, _ = self.gru(x, h0)
+        out = self.fc(out[:, -1, :])
+        return out
+
 def predict_form_gru(df):
     FIXED_SEASONS = ['Autumn', 'Spring', 'Summer', 'Winter']
     FIXED_CATEGORIES = [
@@ -333,7 +367,7 @@ def predict_form_gru(df):
         'panel lakás', 'sorház', 'tanya'
     ]
     NUMERICAL_COLS = [
-        'air_temp', 'cloud_opacity', 'dhi', 'dni', 'ghi', 'gti',
+        'production', 'air_temp', 'cloud_opacity', 'dhi', 'dni', 'ghi', 'gti',
         'clearsky_dhi', 'clearsky_dni', 'clearsky_ghi', 'clearsky_gti',
         'snow_soiling_rooftop', 'snow_soiling_ground',
         'number_of_panels', 'panel_area_m2' 
@@ -343,7 +377,7 @@ def predict_form_gru(df):
                         [f'category_{c}' for c in FIXED_CATEGORIES]
     
 
-    X_SCALER = os.path.join(BASE_DIR, 'api', 'models', 'scaler_X.save')
+    X_SCALER = os.path.join(BASE_DIR, 'api', 'models', 'communities_GRU', 'GRU_scaler_X.save')
 
     x_scaler = joblib.load(X_SCALER)
 
@@ -371,12 +405,11 @@ def predict_form(timestamp, number_of_panels, panel_area_m2, category, consumpti
     ]
     df = pd.DataFrame([input_features], columns=columns, dtype=object)
     df['timestamp'] = pd.to_datetime(df['timestamp'])
-    #df.sort_values('timestamp', inplace=True)
     df = add_time_features(df)
     df['ts_orig'] = df['timestamp']
 
-    CATEGORY_SCALER = os.path.join(BASE_DIR, 'api', 'models', 'scaler_category.pkl')
-    SEASON_SCALER = os.path.join(BASE_DIR, 'api', 'models', 'scaler_season.pkl')
+    CATEGORY_SCALER = os.path.join(BASE_DIR, 'api', 'models', 'communities', 'scaler_category.pkl')
+    SEASON_SCALER = os.path.join(BASE_DIR, 'api', 'models', 'communities', 'scaler_season.pkl')
 
     category_scaler = pickle.load(open(CATEGORY_SCALER, "rb"))
     season_scaler = pickle.load(open(SEASON_SCALER, "rb"))

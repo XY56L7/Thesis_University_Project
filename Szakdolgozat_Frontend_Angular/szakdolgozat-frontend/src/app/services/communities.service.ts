@@ -62,22 +62,23 @@ export class communitiesService {
       const cols = row.split(';');
 
       const data: CommunitiesDataGru = {
-        number_of_panels: Number(cols[0]),
-        panel_area_m2: Number(cols[1]),
-        category: cols[2],
-        air_temp: Number(cols[3]),
-        clearsky_dhi: Number(cols[4]),
-        clearsky_dni: Number(cols[5]),
-        clearsky_ghi: Number(cols[6]),
-        clearsky_gti: Number(cols[7]),
-        dhi: Number(cols[8]),
-        dni: Number(cols[9]),
-        ghi: Number(cols[10]),
-        gti: Number(cols[11]),
-        cloud_opacity: Number(cols[12]),
-        season: cols[13],
-        snow_soiling_ground: Number(cols[14]),
-        snow_soiling_rooftop: Number(cols[15])
+        production: Number(cols[0]),
+        number_of_panels: Number(cols[1]),
+        panel_area_m2: Number(cols[2]),
+        category: cols[3],
+        air_temp: Number(cols[4]),
+        clearsky_dhi: Number(cols[5]),
+        clearsky_dni: Number(cols[6]),
+        clearsky_ghi: Number(cols[7]),
+        clearsky_gti: Number(cols[8]),
+        dhi: Number(cols[9]),
+        dni: Number(cols[10]),
+        ghi: Number(cols[11]),
+        gti: Number(cols[12]),
+        cloud_opacity: Number(cols[13]),
+        season: cols[14],
+        snow_soiling_ground: Number(cols[15]),
+        snow_soiling_rooftop: Number(cols[16])
       };
 
       return data;
